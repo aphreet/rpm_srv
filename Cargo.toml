@@ -7,3 +7,4 @@ authors = ["Mikhail Malygin <m.malygin@yadro.com>"]
 hyper = "0.10"
 env_logger = "0.4.2"
 log = "0.3.7"
+clap = "2.24.1"

@@ -2,15 +2,17 @@ extern crate hyper;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate clap;
 
 use hyper::method;
 use hyper::server;
 use hyper::status;
 use std::fs;
 use std::io;
-use std::error::Error;
 use std::path;
+use std::process;
 use std::string;
+use std::sync;
 
 #[derive(Debug)]
 pub struct HttpError {
@@ -27,13 +29,13 @@ pub struct RepoRequest {
 impl RepoRequest {
 
     fn ensure_dir_exists(&self, path: &path::Path){
-        if(!path.exists()){
+        if !path.exists() {
             fs::DirBuilder::new()
                 .recursive(true)
-                .create(path);
+                .create(path).unwrap();
         }
 
-        if(!path.is_dir()){
+        if !path.is_dir() {
             panic!("Path {:?} must refer to the directory", path);
         }
     }
@@ -99,21 +101,11 @@ fn parse_request(uri: &hyper::uri::RequestUri) -> Result<RepoRequest, HttpError>
 }
 
 pub struct RestApiHandler{
-    file_root: string::String
+    file_root: string::String,
+    refresh_lock: sync::Mutex<u8>
 }
 
 impl RestApiHandler {
-
-    fn file_path(&self, uri: &hyper::uri::RequestUri) -> Result<String, String>{
-        match *uri {
-            hyper::uri::RequestUri::AbsolutePath(ref val) => {
-                Ok(self.file_root.to_owned() + val.as_str())
-            }
-            _ => {
-                Err("Invalid request URI".to_owned())
-            }
-        } 
-    }
 
     fn process_put_req(&self, mut req: server::Request)  {
         let parsed_req = parse_request(&req.uri).unwrap();
@@ -126,30 +118,46 @@ impl RestApiHandler {
         debug!("Read {} bytes to file {}", copied, file_path);
     }
 
-    fn process_post_req(&self, mut req: server::Request)  {
+    fn process_post_req(&self, req: server::Request) -> status::StatusCode{
         let parsed_req = parse_request(&req.uri).unwrap();
         parsed_req.ensure_repo_exists(&self.file_root);
 
         let repo_path = parsed_req.repo_path(&self.file_root);
         debug!("Rebuilding metadata for repo {}", repo_path);
+
+        let lock = self.refresh_lock.lock().unwrap();
+        let child_result = process::Command::new("createrepo").arg(&repo_path).spawn();
+
+        match child_result {
+            Ok(mut child) => {
+                let exit_status = child.wait().unwrap();
+                if exit_status.success() {
+                    status::StatusCode::Ok
+                }else{
+                    error!("Failed to perform metadata refresh for repo {}, exit status {}", repo_path, exit_status);
+                    status::StatusCode::InternalServerError
+                }
+            }
+            Err(error) => {
+                error!("Failed to spawn createrepo command, error {}", error);
+                status::StatusCode::InternalServerError
+            }
+        }
     }
 }
 
 impl server::Handler for RestApiHandler {
-    fn handle(&self, mut req: server::Request, mut resp: server::Response) {
+    fn handle(&self, req: server::Request, mut resp: server::Response) {
         match req.method {
-            method::Method::Get => {
-                *resp.status_mut() = hyper::status::StatusCode::Ok
-            }
             method::Method::Put => {
                 self.process_put_req(req);
-                *resp.status_mut() = hyper::status::StatusCode::Ok;
+                *resp.status_mut() = status::StatusCode::Ok;
             }
             method::Method::Post => {
-                self.process_post_req(req);
-                *resp.status_mut() = hyper::status::StatusCode::Ok;
+                let status = self.process_post_req(req);
+                *resp.status_mut() = status;
             }
-            _ => *resp.status_mut() = hyper::status::StatusCode::MethodNotAllowed
+            _ => *resp.status_mut() = status::StatusCode::MethodNotAllowed
         }
     }
 }
@@ -157,7 +165,24 @@ impl server::Handler for RestApiHandler {
 fn main() {
     env_logger::init().unwrap();
 
-    let handler = RestApiHandler{file_root: "/Users/aphreet/tmp/rpm".to_owned()};
+    let matches = clap::App::new("RPM Server")
+                              .version("1.0")
+                              .author("Mikhail M. <mikhail@malygin.me>")
+                              .about("Allows to publish RPM artifacts via REST")
+                              .arg(clap::Arg::with_name("rpm_root")
+                                   .short("r")
+                                   .long("rpm_root")
+                                   .value_name("ROOT")
+                                   .help("Sets root for the all managed RPM repositories")
+                                   .required(true)
+                                   .takes_value(true))
+                              .get_matches();
+
+    let rpm_root = matches.value_of("rpm_root").unwrap();
+
+    info!("Got rpm_root: {}", rpm_root);
+
+    let handler = RestApiHandler{file_root: rpm_root.to_owned(), refresh_lock: sync::Mutex::new(0)};
 
     server::Server::http("0.0.0.0:8080").unwrap().handle(handler).unwrap();
 }
