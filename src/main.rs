@@ -126,7 +126,7 @@ impl RestApiHandler {
         debug!("Rebuilding metadata for repo {}", repo_path);
 
         let lock = self.refresh_lock.lock().unwrap();
-        let child_result = process::Command::new("createrepo").arg(&repo_path).spawn();
+        let child_result = process::Command::new("createrepo").arg("--update").arg(&repo_path).spawn();
 
         match child_result {
             Ok(mut child) => {
