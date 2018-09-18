@@ -100,6 +100,16 @@ fn parse_request(uri: &hyper::uri::RequestUri) -> Result<RepoRequest, HttpError>
     } 
 }
 
+fn cache_arg(root: &String) -> String {
+    let cache_path = path::Path::new(root).join(path::Path::new("cache"));
+    let cache_str = cache_path.to_str().unwrap().to_owned();
+
+    let mut cache_arg: String = "--cachedir=".to_owned();
+
+    cache_arg.push_str(&cache_str);
+    cache_arg
+}
+
 pub struct RestApiHandler{
     file_root: string::String,
     refresh_lock: sync::Mutex<u8>
@@ -125,8 +135,10 @@ impl RestApiHandler {
         let repo_path = parsed_req.repo_path(&self.file_root);
         debug!("Rebuilding metadata for repo {}", repo_path);
 
+        let cache_arg = cache_arg(&self.file_root);
+
         let lock = self.refresh_lock.lock().unwrap();
-        let child_result = process::Command::new("createrepo").arg("--update").arg(&repo_path).spawn();
+        let child_result = process::Command::new("createrepo").arg(&cache_arg).arg("--update").arg(&repo_path).spawn();
 
         match child_result {
             Ok(mut child) => {
