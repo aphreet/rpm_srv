@@ -13,6 +13,7 @@ use std::path;
 use std::process;
 use std::string;
 use std::sync;
+use std::ops::Deref;
 
 #[derive(Debug)]
 pub struct HttpError {
@@ -138,7 +139,10 @@ impl RestApiHandler {
         let cache_arg = cache_arg(&self.file_root);
 
         let lock = self.refresh_lock.lock().unwrap();
-        let child_result = process::Command::new("createrepo_c").arg(&cache_arg).arg("--update").arg(&repo_path).spawn();
+
+        debug!("Got lock {}", lock.deref());
+        
+        let child_result = process::Command::new("createrepo_c").arg("--update").arg(&repo_path).spawn();
 
         match child_result {
             Ok(mut child) => {
@@ -151,7 +155,7 @@ impl RestApiHandler {
                 }
             }
             Err(error) => {
-                error!("Failed to spawn createrepo command, error {}", error);
+                error!("Failed to spawn createrepo_c command, error {}", error);
                 status::StatusCode::InternalServerError
             }
         }
