@@ -138,7 +138,7 @@ impl RestApiHandler {
         let cache_arg = cache_arg(&self.file_root);
 
         let lock = self.refresh_lock.lock().unwrap();
-        let child_result = process::Command::new("createrepo").arg(&cache_arg).arg("--update").arg(&repo_path).spawn();
+        let child_result = process::Command::new("createrepo_c").arg(&cache_arg).arg("--update").arg(&repo_path).spawn();
 
         match child_result {
             Ok(mut child) => {

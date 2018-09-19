@@ -1,6 +1,6 @@
-from opensuse:latest
+from opensuse:latest as builder
 
-RUN zypper install -y wget tar createrepo gcc
+RUN zypper install -y wget tar gcc
 
 RUN wget -O /opt/rust.tgz https://static.rust-lang.org/dist/rust-1.17.0-x86_64-unknown-linux-gnu.tar.gz \
 	 && tar -C /opt -zxvf /opt/rust.tgz \
@@ -15,6 +15,12 @@ RUN cd /opt/rpm_srv \
 	&& cargo build --release \
 	&& cp /opt/rpm_srv/target/release/rpm_srv /opt/srv \
 	&& rm -rf /opt/rpm_srv
+
+from opensuse:latest
+
+RUN zypper install -y createrepo_c
+
+COPY --from=builder /opt/srv /opt/srv
 
 EXPOSE 8080
 
